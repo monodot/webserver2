@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: isso
+  labels:
+    app.kubernetes.io/name: isso
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: isso
+spec:
+  type: ClusterIP
+  ports:
+    - name: web
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: isso
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: isso
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.middlewares: default-redirect-https@kubernetescrd
+  name: plausible
+  labels:
+    app.kubernetes.io/name: isso
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: isso
+spec:
+  rules:
+  - host: comments.tutorialworks.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: isso
+            port:
+              number: 8080
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - comments.tutorialworks.com
+    secretName: isso-tls
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: isso-db
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app.kubernetes.io/name: isso
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: isso
+  name: isso
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: isso
+      app.kubernetes.io/component: app
+      app.kubernetes.io/part-of: isso
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: isso
+        app.kubernetes.io/component: app
+        app.kubernetes.io/part-of: isso
+    spec:
+      containers:
+      - image: ghcr.io/isso-comments/isso:latest
+        name: isso
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /admin
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 10
+        livenessProbe:
+          httpGet:
+            path: /admin
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 10
+        resources: {}
+        volumeMounts:
+          - name: config
+            mountPath: /config
+          - name: db
+            mountPath: /db
+      volumes:
+        - name: config
+          secret:
+            secretName: isso-config
+        - name: db
+          persistentVolumeClaim:
+            claimName: isso-db
+
